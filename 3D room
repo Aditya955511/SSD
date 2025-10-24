@@ -1,0 +1,504 @@
+3D Room Reconstruction — Low-Level Design (LLD)
+
+Purpose: This document describes a client-side web system that converts a user-supplied video of an indoor room into a 3D model (point cloud -> mesh -> textured model) without using any external APIs. The implementation targets modern browsers and relies on WebAssembly (OpenCV.js), WebGL/Three.js, and optional TensorFlow.js models for better depth estimation.
+
+
+---
+
+1. Goals & Scope
+
+Primary goal: Produce a reasonable 3D mesh of an indoor scene from a single handheld video recorded while panning/moving.
+
+Constraints: All processing must run in the browser (no external cloud APIs). Use only client-side libraries and WASM builds (OpenCV.js, TF.js, Three.js).
+
+Target devices: Desktop-class browsers (Chrome/Edge/Firefox) and high-end mobile browsers. Progressive enhancement for lower-power devices.
+
+
+2. Assumptions & Requirements
+
+Video contains sufficient parallax (camera moves) and good illumination.
+
+Video length: 10–60 seconds suggested.
+
+No special markers in the scene (markerless pipeline).
+
+Users accept computation time and memory usage on their device.
+
+
+Functional requirements
+
+Upload or record video.
+
+Extract frames at configurable sampling rate.
+
+Detect and match features across frames.
+
+Estimate relative camera poses and triangulate sparse 3D points.
+
+(Optional) Use monocular depth estimator per-frame and fuse to densify point cloud.
+
+Generate mesh (surface) and apply simple texturing.
+
+Render in-browser (orbit control, lighting) and export OBJ/GLTF.
+
+
+Non-functional requirements
+
+Privacy: video does not leave user device.
+
+Graceful degradation on low-memory devices.
+
+Progress indication & cancel capability.
+
+
+
+---
+
+3. High-level Architecture
+
+Client (Browser) single-page app with following logical modules:
+
+1. UI Layer
+
+Video upload / recorder component
+
+Progress & logs
+
+Preview + export buttons
+
+
+
+2. Frame Extraction Module
+
+Samples frames using <canvas>
+
+
+
+3. Feature Module (OpenCV.js)
+
+Keypoint detection (ORB/AKAZE) + descriptor extraction
+
+Feature matching (BFMatcher + ratio test)
+
+
+
+4. Pose Estimation Module
+
+Essential matrix estimation (RANSAC)
+
+RecoverPose -> R, t between frame pairs
+
+Global pose graph optimization (simple incremental bundle adjuster)
+
+
+
+5. Triangulation & Sparse Reconstruction
+
+Triangulate stable matches to produce 3D point cloud
+
+
+
+6. Dense Depth Estimation (optional)
+
+TF.js MiDaS/DPT model inference per frame
+
+Depth-to-point cloud conversion + fusion
+
+
+
+7. Meshing & Texturing
+
+Poisson reconstruction or Delaunay + alpha shapes (JS lib / WASM)
+
+Projective texture blending (simple atlas)
+
+
+
+8. Renderer
+
+Three.js scene: camera, lights, controls, mesh display
+
+
+
+9. Exporter
+
+Export OBJ/PLY/GLTF with textures
+
+
+
+
+
+---
+
+4. Data Flow & Sequence (Simplified)
+
+1. User uploads video -> UI emits startProcessing.
+
+
+2. FrameExtractor samples N frames (frame list).
+
+
+3. For each consecutive pair (i, i+1):
+
+FeatureModule detects kps & descriptors.
+
+Matcher finds matches; prune with ratio test and RANSAC.
+
+PoseEstimator finds relative pose and returns inlier matches.
+
+Triangulator triangulates inlier points into 3D.
+
+Append to global point cloud.
+
+
+
+4. (Optional) Run depth estimator on frames -> convert to local point clouds -> fuse by transforming with poses.
+
+
+5. Clean/fuse point cloud (voxel grid filter, remove outliers).
+
+
+6. Meshing algorithm -> mesh + UVs.
+
+
+7. Render and allow export.
+
+
+
+
+---
+
+5. Core Modules — Implementation Details
+
+5.1 FrameExtractor
+
+Inputs: HTMLVideoElement or File Outputs: Array of ImageData objects Key steps:
+
+Seek video to timestamps (using video.currentTime) and draw to hidden <canvas>.
+
+Use requestVideoFrameCallback if available for robust frame capture.
+
+Configurable sampling: sample every s frames or every t seconds.
+
+
+5.2 FeatureModule (OpenCV.js)
+
+Detector choice: ORB (fast, patent-free). Optionally AKAZE. Workflow:
+
+Convert ImageData -> cv.Mat (grayscale).
+
+detectAndCompute -> keypoints + descriptors.
+
+Use BFMatcher (Hamming for ORB) with crossCheck=false and ratio test (0.75).
+
+Return keypoints, descriptors, matches (filtered), points2D.
+
+
+5.3 PoseEstimator
+
+Inputs: points2D frame A, points2D frame B, camera intrinsics (approx) Steps:
+
+Estimate Essential matrix: findEssentialMat(ptsA, ptsB, focal, pp, RANSAC).
+
+RecoverPose -> R, t, mask.
+
+Maintain a global camera pose for each frame (T_world_frame).
+
+Pose graph: For stability, use incremental optimization: use a simple Levenberg–Marquardt-based BA on small windows (3–7 frames) implemented in JS or WASM.
+
+
+Camera intrinsics: If not available, estimate camera focal length from frame width (f ≈ width) and principal point at center. Allow user to enter focal length for better accuracy.
+
+5.4 Triangulation
+
+Use triangulatePoints with projection matrices P1=[I|0], P2=[R|t] to get homogeneous 4D points.
+
+Convert to Euclidean by dividing by w.
+
+Keep only points with positive depth and good reprojection error.
+
+
+5.5 Depth Estimation (Optional / Hybrid)
+
+Run a monocular depth model (MiDaS/DPT) through TF.js.
+
+Convert depth map to point cloud using inverse projection with known intrinsics.
+
+Transform to world using estimated frame pose.
+
+Fuse using voxel grid averaging.
+
+
+5.6 Point Cloud Postprocessing
+
+Outlier removal: Radius outlier filter (points with too few neighbors removed).
+
+Voxel grid downsample to target density.
+
+Normal estimation (approx via PCA on local neighborhood) to prepare for meshing.
+
+
+5.7 Meshing & Texturing
+
+If using a JS meshing lib: apply Poisson reconstruction (WASM) or three-mesh-bvh-based surface reconstruction.
+
+Simpler fallback: Projective surface (depth image stitching) -> create grid mesh per frame and fuse.
+
+Generate UVs by projecting texture from best-fit frames or bake atlas.
+
+
+5.8 Renderer & Exporter
+
+Use Three.js to render mesh with PBR material, environment map, and user controls.
+
+Exporters: GLTFExporter, OBJExporter for download.
+
+
+
+---
+
+6. Data Structures
+
+Frame { id, timestamp, imageData, keypoints, descriptors, pose (4x4), depthMap? }
+
+Match { frameA, frameB, matches[] { kpIdxA, kpIdxB, dist } }
+
+Point3D { x, y, z, color, observations: [{frameId, kpIdx, reprojError}] }
+
+
+
+---
+
+7. Key Algorithms & Pseudocode
+
+7.1 Frame Loop (high-level)
+
+frames = extractFrames(video, sampleRate)
+globalPoses[0] = identity
+for i in 0..frames.length-2:
+    kpA, descA = detectAndCompute(frames[i])
+    kpB, descB = detectAndCompute(frames[i+1])
+    matches = matchDescriptors(descA, descB)
+    E, mask = findEssentialMat(ptsA(matches), ptsB(matches))
+    R, t, inliers = recoverPose(E,...)
+    globalPoses[i+1] = globalPoses[i] * [R|t]
+    pts3D = triangulate(ptsA(inliers), ptsB(inliers), globalPoses[i], globalPoses[i+1])
+    addPointsToCloud(pts3D)
+
+postProcessPointCloud()
+mesh = reconstructMesh(pointCloud)
+render(mesh)
+
+7.2 Triangulate Points (note on reprojection check)
+
+After triangulation, reproject 3D to each image; compute reprojection error; discard points with error > threshold (e.g. 2–4 px).
+
+
+
+---
+
+8. Libraries & Tools
+
+OpenCV.js (WASM build) — feature detection, essential matrix, triangulation.
+
+Three.js — rendering, glTF export.
+
+TensorFlow.js (optional) — MiDaS/DPT for denser depth.
+
+numeric.js / glMatrix — small linear algebra helpers if needed.
+
+Mesh libs: poisson-recon-wasm (if available) or implement CAB (concave hull) fallback.
+
+
+
+---
+
+9. Performance & Optimization
+
+Use WebAssembly (OpenCV.js) for heavy ops.
+
+Process frames in batches and allow web workers for parallelism (feature detection, depth inference).
+
+Use streaming approach: limit how many frames are kept in memory; keep descriptors and reduced-sized images.
+
+Provide a "quality vs speed" slider: low (sparser frames + ORB) to high (denser frames + TF.js depth fusion).
+
+Use incremental mesh building rather than re-meshing entire cloud frequently.
+
+
+
+---
+
+10. Privacy, Security & UX
+
+All processing is local — emphasize privacy.
+
+Provide explicit disclaimers about memory/CPU usage.
+
+Allow user to cancel at any stage; free memory explicitly in OpenCV.js (cv.Mat.delete()).
+
+
+
+---
+
+11. Testing Strategy
+
+Unit test helpers (pose composition, reprojection) with synthetic data.
+
+E2E tests using short labeled videos and ground-truth SLAM sequences (if available).
+
+Visual tests: expected mesh overlays.
+
+
+
+---
+
+12. Deployment & Packaging
+
+Single-page app with static hosting (Netlify, GitHub Pages). All libs load from local libs/ folder or CDN (optional).
+
+Consider lazy-loading heavy libs (OpenCV.js, TF.js) on demand.
+
+
+
+---
+
+13. Roadmap & Milestones (Suggested)
+
+1. MVP (2–3 weeks)
+
+Video upload, frame extraction
+
+ORB feature detection + matching
+
+Relative pose estimation + sparse triangulation
+
+Render sparse point cloud in Three.js
+
+Export PLY
+
+
+
+2. Phase 2 (3–4 weeks)
+
+Pose graph stabilization + local BA
+
+Depth inference (TF.js) and fusion
+
+Basic meshing and simple texture projection
+
+
+
+3. Phase 3 (4–6 weeks)
+
+Robust meshing (Poisson), normal estimation
+
+UV atlas and texture baking
+
+Mobile performance tuning
+
+
+
+
+
+---
+
+14. Example Project File Structure
+
+/3d-room-recon
+  /public
+    index.html
+    style.css
+  /src
+    app.js            // main app + UI
+    frames.js         // frame extractor
+    features.js       // OpenCV.js wrapper
+    pose.js           // pose estimation & BA
+    triangulate.js    // triangulation helpers
+    depthFusion.js    // TF.js depth + fusion
+    mesh.js           // meshing + texturing
+    renderer.js       // threejs scene + exporters
+  /libs
+    opencv.js
+    three.min.js
+    tf.min.js (optional)
+  /assets
+    sample.mp4
+  package.json (build scripts)
+
+
+---
+
+15. Example: Important Code Snippets (pseudocode)
+
+Frame -> cv.Mat conversion
+
+const canvas = document.createElement('canvas');
+canvas.width = w; canvas.height = h;
+const ctx = canvas.getContext('2d');
+ctx.drawImage(video, 0, 0, w, h);
+const imageData = ctx.getImageData(0,0,w,h);
+const mat = cv.matFromImageData(imageData);
+
+ORB detection & descriptor extraction
+
+let orb = new cv.ORB();
+let kp = new cv.KeyPointVector();
+let desc = new cv.Mat();
+orb.detectAndCompute(grayMat, new cv.Mat(), kp, desc);
+
+RecoverPose + triangulate
+
+let E = cv.findEssentialMat(pts1, pts2, f, pp, cv.RANSAC);
+let R = new cv.Mat(), t = new cv.Mat(), mask = new cv.Mat();
+cv.recoverPose(E, pts1, pts2, R, t, f, pp, mask);
+cv.triangulatePoints(proj1, proj2, pts1, pts2, points4D);
+
+
+---
+
+16. Risks & Mitigations
+
+Risk: Poor reconstruction with low parallax. Mitigate: show guidance overlay to the user about how to record.
+
+Risk: Memory exhaustion. Mitigate: cap frames, downsample images, use streaming.
+
+Risk: Browser incompatibilities. Mitigate: feature check and fallback.
+
+
+
+---
+
+17. Next Steps
+
+Create a minimal prototype that extracts frames, runs ORB matches, and visualizes sparse point cloud.
+
+Iterate by adding pose stabilization and simple meshing.
+
+
+
+---
+
+18. Appendix
+
+Useful references: OpenCV docs, Three.js docs, MiDaS/TensorFlow.js model pages.
+
+
+
+---
+
+Document prepared for: Aditya — October 2025
+
+
+
+Great — I created a full LLD document on the canvas titled "3D Room Reconstruction — Low-Level Design (LLD)". It contains architecture, data flow, module-level details, pseudocode, file structure, roadmap & milestones, optimization notes, and next steps.
+
+Open the canvas entry to read the complete document. Want me to:
+
+convert this LLD into a step-by-step implementation checklist with runnable tasks, or
+
+generate the MVP code (starter repo) that implements frame extraction → ORB matching → sparse triangulation → Three.js viewer?
+
+
+Pick one and I'll start the next artifact immediately. 👍
+
