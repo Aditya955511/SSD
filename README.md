@@ -1,240 +1,50 @@
-# SSD
-RoomScan Visualizer — README
+# 3D Room Designer (React + Three.js)
 
-This project enables users to scan their rooms using video, convert it into a 3D model using Luma AI, and visualize color changes on the web in real-time.
+This is a starter scaffold for a 3D Room Designer built with React and Three.js. It includes core functionality:
 
+- Create a rectangular room (four walls, floor).
+- Load glTF / .glb furniture models from `/public/models`.
+- Move/rotate/scale via TransformControls.
+- Orbit camera navigation.
+- Grid helper and shadows.
+- Save scene snapshot to `localStorage` and load it back.
 
----
+This scaffold is intended as a foundation to extend with more features (snapping, textures, undo/redo, physics, WebXR).
 
-🧱 Project Overview
+## Quick start (Windows PowerShell)
 
-RoomScan Visualizer integrates Luma AI for 3D reconstruction and Three.js for 3D visualization. Users can upload a video of their room, which is processed into a .glb model that can be interactively recolored or textured through a web interface.
+1. Install dependencies:
 
-
----
-
-🚀 Features
-
-Upload room videos directly from the browser.
-
-Automatic conversion to 3D model via Luma AI API.
-
-Real-time 3D visualization with Three.js.
-
-Wall and object recoloring controls.
-
-Secure file storage and access (via S3-compatible service).
-
-Scalable backend using Node.js + Express.
-
-
-
----
-
-📁 Project Structure
-
-roomscan-visualizer/
-│
-├── frontend/              # React/Three.js-based UI
-│   ├── src/
-│   │   ├── components/   # UI components
-│   │   ├── pages/        # Upload & Viewer pages
-│   │   ├── services/     # API calls
-│   │   └── App.js
-│   └── package.json
-│
-├── backend/               # Node.js/Express backend
-│   ├── controllers/      # Upload, Luma API, and model handling
-│   ├── routes/           # REST endpoints
-│   ├── utils/            # File storage & validation
-│   └── server.js
-│
-├── worker/                # Background job processor for Luma conversion
-│   ├── queue.js
-│   ├── lumaClient.js
-│   └── processJob.js
-│
-├── docker-compose.yml     # Local environment setup
-└── README.md              # Project documentation
-
-
----
-
-🧩 Tech Stack
-
-Frontend: React, Three.js, TailwindCSS
-
-Backend: Node.js, Express.js
-
-3D Reconstruction: Luma AI API
-
-Storage: AWS S3 / Cloudinary (for videos & models)
-
-Queue: BullMQ / Redis (for async processing)
-
-Deployment: Docker + Render / Vercel
-
-
-
----
-
-🔧 Setup Instructions
-
-1️⃣ Clone Repository
-
-git clone https://github.com/yourusername/roomscan-visualizer.git
-cd roomscan-visualizer
-
-2️⃣ Install Dependencies
-
-Frontend:
-
-cd frontend
+```powershell
+cd "C:\Users\adity\OneDrive\Desktop\New folder (2)"
 npm install
+```
 
-Backend:
+2. Run dev server:
 
-cd backend
-npm install
+```powershell
+npm run dev
+```
 
-3️⃣ Configure Environment
+3. Open the app in the browser (Vite shows the URL, usually http://localhost:5173).
 
-Create a .env file in /backend with:
+## Usage notes
 
-PORT=5000
-LUMA_API_KEY=your_luma_api_key
-AWS_ACCESS_KEY=your_access_key
-AWS_SECRET_KEY=your_secret_key
-S3_BUCKET=roomscan-models
-REDIS_URL=redis://localhost:6379
+- Place .glb models into `public/models` (names: `chair.glb`, `table.glb`, etc.) or edit `src/FurnitureManager.jsx` to point to your URLs.
+- Click a furniture button to insert. Click objects in the viewport to select and transform.
+- Press `Delete` to remove the selected object.
+- Use Save Room to export scene snapshot to `localStorage` key `roomScene` and Load Room to import it.
 
-4️⃣ Start Services
+## Files of interest
 
-docker-compose up --build
+- `src/RoomScene.jsx` — main Three.js scene, controls, basic wall creation, loader and save/load handlers.
+- `src/WallControls.jsx` — UI for wall dimensions (placeholder for wiring).
+- `src/FurnitureManager.jsx` — UI to insert furniture models.
+- `src/SaveLoadManager.jsx` — save/load buttons that trigger export/import.
 
-Access the app at: http://localhost:3000
+## Next steps (suggested)
 
-
----
-
-🧠 API Endpoints
-
-POST /api/upload
-
-Uploads user video and creates a Luma job.
-
-{
-  "videoUrl": "https://example.com/room.mp4"
-}
-
-Response:
-
-{
-  "jobId": "abc123",
-  "status": "processing"
-}
-
-GET /api/model/:jobId
-
-Retrieves the processed 3D model link. Response:
-
-{
-  "modelUrl": "https://s3.amazonaws.com/.../room.glb"
-}
-
-
----
-
-🖼️ Frontend Functionality
-
-UploadPage.jsx: Uploads video → calls backend.
-
-ViewerPage.jsx: Loads .glb model using Three.js → provides color controls.
-
-ColorPicker.jsx: Lets users select and apply paint colors dynamically.
-
-
-
----
-
-⚙️ Luma AI Integration Flow
-
-1. User uploads room video.
-
-
-2. Backend sends it to Luma AI API for processing.
-
-
-3. Worker periodically checks job status.
-
-
-4. Once complete, Luma returns .glb link.
-
-
-5. Model is loaded in the Three.js viewer.
-
-
-
-
----
-
-🧪 Testing
-
-Run backend tests:
-
-npm run test
-
-Frontend testing with Jest:
-
-npm run test
-
-
----
-
-🌐 Deployment Guide
-
-Deploy backend using Render or AWS Elastic Beanstalk.
-
-Deploy frontend on Vercel or Netlify.
-
-Use AWS S3 / Cloudflare R2 for media storage.
-
-Configure environment variables via platform dashboard.
-
-
-
----
-
-🧭 Future Enhancements
-
-Real-time segmentation for wall detection.
-
-Integration with AI color recommendation engine.
-
-Multi-room scanning and stitching.
-
-VR/AR preview support (WebXR + Three.js).
-
-
-
----
-
-👨‍💻 Contributors
-
-Lead Developer: Aditya Jaiswal
-AI & 3D Integration: GPT-5
-Design & Documentation: Color Your House Project
-
-
----
-
-🪶 License
-
-MIT License © 2025 RoomScan Visualizer Team
-
-
-
-✅ The README.md has been added — it now fully explains setup, tech stack, API usage, and deployment details for your RoomScan Visualizer project.
-
-Would you like me to generate the frontend setup guide next (how to connect Three.js and Luma API results for color change interactions)?
-
+- Wire wall controls to update geometries in realtime via React context or callbacks.
+- Add material/texture pickers and dynamic measurements.
+- Implement snapping and alignment helpers.
+- Add undo/redo stack and optional physics using cannon-es.
